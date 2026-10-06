@@ -3,6 +3,8 @@ package whatsapp
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -63,13 +65,12 @@ func (s *Service) conectarOuAutenticar(ctx context.Context) error {
 	s.Client = whatsmeow.NewClient(deviceStore, clientLog)
 
 	s.Client.AddEventHandler(func(evt interface{}) {
-		switch v := evt.(type) {
+		switch evt.(type) {
 		case *events.LoggedOut:
 			fmt.Println("\n⚠️ Sessão encerrada no WhatsApp (desconectado). A resetar sessão e gerar novo QR Code...")
 			go s.reconectarComNovoQR()
 
 		case *events.Disconnected:
-			_ = v // ou simplesmente não declare 'v' se mudar o switch
 			fmt.Println("\n⚠️ Conexão perdida. O whatsmeow tentará reconectar em segundo plano...")
 
 		case *events.Connected:
@@ -109,7 +110,6 @@ func (s *Service) reconectarComNovoQR() {
 	time.Sleep(2 * time.Second)
 
 	ctx := context.Background()
-	// Remove o dispositivo invalidado para exigir login limpo
 	if s.Client != nil && s.Client.Store != nil {
 		_ = s.Client.Store.Delete(ctx)
 	}
@@ -117,6 +117,32 @@ func (s *Service) reconectarComNovoQR() {
 	if err := s.conectarOuAutenticar(ctx); err != nil {
 		fmt.Printf("❌ Falha na reautenticação com QR: %v\n", err)
 	}
+}
+
+// Baixa os bytes da imagem da vaga
+func baixarImagem(url string) ([]byte, string, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("status HTTP ao baixar imagem: %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+
+	mimeType := resp.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = "image/jpeg"
+	}
+
+	return data, mimeType, nil
 }
 
 func (s *Service) EnviarVaga(v models.Vaga) error {
@@ -128,6 +154,7 @@ func (s *Service) EnviarVaga(v models.Vaga) error {
 		return fmt.Errorf("WhatsApp desconectado no momento")
 	}
 
+	// 1. Monta o texto / legenda
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("🚨 *NOVA VAGA [%s]!*\n\n", strings.ToUpper(v.Origem)))
 	sb.WriteString(fmt.Sprintf("📌 *Cargo:* %s", v.Cargo))
@@ -158,11 +185,39 @@ func (s *Service) EnviarVaga(v models.Vaga) error {
 		return fmt.Errorf("JID inválido: %w", err)
 	}
 
-	msg := &waProto.Message{
-		Conversation: proto.String(sb.String()),
+	ctx := context.Background()
+
+	// 2. Se houver imagem, envia com a legenda acoplada
+	if v.ImagemURL != "" {
+		imgBytes, mimeType, errImg := baixarImagem(v.ImagemURL)
+		if errImg == nil && len(imgBytes) > 0 {
+			uploadResp, errUpload := cli.Upload(ctx, imgBytes, whatsmeow.MediaImage)
+			if errUpload == nil {
+				// Como está (com erro de caixa das letras):
+				// Corrigido:
+				msgImg := &waProto.Message{
+					ImageMessage: &waProto.ImageMessage{
+						Caption:       proto.String(sb.String()),
+						Mimetype:      proto.String(mimeType),
+						URL:           &uploadResp.URL,
+						DirectPath:    &uploadResp.DirectPath,
+						MediaKey:      uploadResp.MediaKey,
+						FileEncSHA256: uploadResp.FileEncSHA256,
+						FileSHA256:    uploadResp.FileSHA256,
+						FileLength:    proto.Uint64(uint64(len(imgBytes))),
+					},
+				}
+				_, err = cli.SendMessage(ctx, jid, msgImg)
+				return err
+			}
+		}
 	}
 
-	_, err = cli.SendMessage(context.Background(), jid, msg)
+	// 3. Fallback: Se não tiver imagem ou o upload falhar, envia como mensagem de texto
+	msgTexto := &waProto.Message{
+		Conversation: proto.String(sb.String()),
+	}
+	_, err = cli.SendMessage(ctx, jid, msgTexto)
 	return err
 }
 

@@ -51,14 +51,30 @@ func BuscarJFEmpregos() ([]models.Vaga, error) {
 		}
 		id := strings.TrimSpace(partes[1])
 
+		// Captura a URL da imagem da empresa
+		var imagemURL string
+		imgTag := box.Find("img").First()
+		if imgSrc, ok := imgTag.Attr("src"); ok && strings.TrimSpace(imgSrc) != "" {
+			imgSrc = strings.TrimSpace(imgSrc)
+			// Garante a URL completa caso venha com caminho relativo
+			if strings.HasPrefix(imgSrc, "http") {
+				imagemURL = imgSrc
+			} else if strings.HasPrefix(imgSrc, "/") {
+				imagemURL = "https://www.jfempregos.com.br" + imgSrc
+			} else {
+				imagemURL = "https://www.jfempregos.com.br/" + imgSrc
+			}
+		}
+
 		vaga := models.Vaga{
-			ID:      "jf_" + id, // Prefixo para evitar colisão com outros portais
-			Origem:  "JF Empregos",
-			Cargo:   strings.TrimSpace(box.Find("h3").First().Text()),
-			Empresa: strings.TrimSpace(box.Find(".nome_empresa").First().Text()),
-			Nivel:   strings.TrimSpace(box.Find(".tipo").First().Text()),
-			SubArea: strings.TrimSpace(box.Find("h3 + p").First().Text()),
-			URL:     "https://www.jfempregos.com.br/vaga/" + id,
+			ID:        "jf_" + id,
+			Origem:    "JF Empregos",
+			Cargo:     strings.TrimSpace(box.Find("h3").First().Text()),
+			Empresa:   strings.TrimSpace(box.Find(".nome_empresa").First().Text()),
+			Nivel:     strings.TrimSpace(box.Find(".tipo").First().Text()),
+			SubArea:   strings.TrimSpace(box.Find("h3 + p").First().Text()),
+			URL:       "https://www.jfempregos.com.br/vaga/" + id,
+			ImagemURL: imagemURL,
 		}
 
 		box.Find("table tr td").Each(func(j int, td *goquery.Selection) {

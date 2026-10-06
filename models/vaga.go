@@ -11,4 +11,5 @@ type Vaga struct {
 	Escolaridade string
 	Cidade       string
 	URL          string
+	ImagemURL    string
 }
