@@ -1,0 +1,55 @@
+Passo 1: No seu computador (Windows)
+Toda vez que você alterar o código no Windows e for gerar a versão para o servidor Linux:
+
+Abra o terminal (PowerShell ou Prompt) na pasta do projeto:
+
+PowerShell
+cd D:\Desenvolvimento\Golang\capitarVagas
+Force o compilador do Go a gerar o binário para Linux 64-bit:
+
+PowerShell
+go env -w GOOS=linux
+go env -w GOARCH=amd64
+go build -o capitarVagas main.go
+go env -u GOOS
+go env -u GOARCH
+Por que esses comandos?
+
+go env -w fixa temporariamente o alvo como Linux/amd64 para evitar que o Windows gere um .exe. Os dois comandos go env -u no final removem a trava e voltam o Go ao padrão do seu Windows.
+
+Envie o executável gerado para a VPS via SCP:
+
+PowerShell
+scp capitarVagas root@SEU_IP:/var/www/capitarVagas/
+(Substitua SEU_IP pelo IP real da sua máquina Linux).
+
+Passo 2: No Servidor Linux (VPS)
+Conecte no terminal da VPS via SSH:
+
+Entre na pasta da aplicação:
+
+Bash
+cd /var/www/capitarVagas
+Garanta que o arquivo recebido é realmente do Linux:
+
+Bash
+file capitarVagas
+O que deve aparecer:
+
+Deve conter ELF 64-bit LSB executable, x86-64....
+
+(Se disser PE32+, ainda é executável de Windows e dará erro).
+
+Dê permissão de execução:
+
+Bash
+chmod +x capitarVagas
+Reinicie o serviço gerenciado pelo systemd:
+
+Bash
+systemctl restart capitarvagas.service
+Acompanhe os logs em tempo real para confirmar o funcionamento:
+
+Bash
+journalctl -u capitarvagas.service -f
+(Para sair da tela de logs sem interromper o bot, pressione Ctrl + C).

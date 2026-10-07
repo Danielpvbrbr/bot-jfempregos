@@ -154,31 +154,41 @@ func (s *Service) EnviarVaga(v models.Vaga) error {
 		return fmt.Errorf("WhatsApp desconectado no momento")
 	}
 
-	// 1. Monta o texto / legenda
+	// 1. Monta o texto / legenda no Estilo 2 (Direto e com destaque)
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("🚨 *NOVA VAGA [%s]!*\n\n", strings.ToUpper(v.Origem)))
-	sb.WriteString(fmt.Sprintf("📌 *Cargo:* %s", v.Cargo))
+	sb.WriteString(fmt.Sprintf("📢 *VAGA ABERTA [%s]*\n\n", strings.ToUpper(v.Origem)))
+
+	// Cargo em destaque e maiúsculas
+	sb.WriteString(fmt.Sprintf("🔹 *CARGO:* %s", strings.ToUpper(v.Cargo)))
 	if v.Nivel != "" {
 		sb.WriteString(fmt.Sprintf(" (%s)", v.Nivel))
 	}
 	sb.WriteString("\n")
 
 	if v.Empresa != "" {
-		sb.WriteString(fmt.Sprintf("🏢 *Empresa:* %s\n", v.Empresa))
+		sb.WriteString(fmt.Sprintf("🔹 *EMPRESA:* %s\n", v.Empresa))
 	}
-	if v.SubArea != "" {
-		sb.WriteString(fmt.Sprintf("🏷️ *Área:* %s\n", v.SubArea))
-	}
+
+	// Agrupa Vagas e Escolaridade de forma limpa se existirem
+	detalhes := []string{}
 	if v.NumeroVagas != "" {
-		sb.WriteString(fmt.Sprintf("👥 *Vagas:* %s\n", v.NumeroVagas))
+		detalhes = append(detalhes, v.NumeroVagas)
 	}
 	if v.Escolaridade != "" {
-		sb.WriteString(fmt.Sprintf("🎓 *Escolaridade:* %s\n", v.Escolaridade))
+		detalhes = append(detalhes, v.Escolaridade)
 	}
+	if len(detalhes) > 0 {
+		sb.WriteString(fmt.Sprintf("🔹 *DETALHES:* %s\n", strings.Join(detalhes, " | ")))
+	}
+
 	if v.Cidade != "" {
-		sb.WriteString(fmt.Sprintf("📍 *Cidade:* %s\n", v.Cidade))
+		sb.WriteString(fmt.Sprintf("🔹 *LOCAL:* %s\n", v.Cidade))
 	}
-	sb.WriteString(fmt.Sprintf("\n🔗 *Link:* %s", v.URL))
+
+	sb.WriteString(fmt.Sprintf("\n🔗 *Link da Vaga:*\n%s\n\n", v.URL))
+	sb.WriteString("👥 *Compartilhe com quem precisa!*\n")
+	sb.WriteString("👉 *Participe do nosso grupo de vagas de JF e região:*\n")
+	sb.WriteString("https://chat.whatsapp.com/EZn5H2TImjK1u6iFJaq9K6")
 
 	jid, err := types.ParseJID(s.GrupoJID)
 	if err != nil {
@@ -187,14 +197,12 @@ func (s *Service) EnviarVaga(v models.Vaga) error {
 
 	ctx := context.Background()
 
-	// 2. Se houver imagem, envia com a legenda acoplada
+	// 2. Se houver imagem, envia com a legenda acoplada e miniatura embutida
 	if v.ImagemURL != "" {
 		imgBytes, mimeType, errImg := baixarImagem(v.ImagemURL)
 		if errImg == nil && len(imgBytes) > 0 {
 			uploadResp, errUpload := cli.Upload(ctx, imgBytes, whatsmeow.MediaImage)
 			if errUpload == nil {
-				// Como está (com erro de caixa das letras):
-				// Corrigido:
 				msgImg := &waProto.Message{
 					ImageMessage: &waProto.ImageMessage{
 						Caption:       proto.String(sb.String()),
@@ -205,6 +213,7 @@ func (s *Service) EnviarVaga(v models.Vaga) error {
 						FileEncSHA256: uploadResp.FileEncSHA256,
 						FileSHA256:    uploadResp.FileSHA256,
 						FileLength:    proto.Uint64(uint64(len(imgBytes))),
+						JPEGThumbnail: imgBytes,
 					},
 				}
 				_, err = cli.SendMessage(ctx, jid, msgImg)
